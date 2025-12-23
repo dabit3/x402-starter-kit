@@ -212,6 +212,11 @@ const NETWORK_MAP: Record<string, string> = {
   'solana-devnet': 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
 };
 
+// Reverse map: CAIP-2 to legacy network name
+const CAIP2_TO_LEGACY: Record<string, string> = Object.fromEntries(
+  Object.entries(NETWORK_MAP).map(([legacy, caip2]) => [caip2, legacy])
+);
+
 type LegacyNetwork =
   | 'base'
   | 'base-sepolia'
@@ -353,11 +358,14 @@ export class MerchantExecutor {
 
   constructor(options: MerchantExecutorOptions) {
     // Convert legacy network name to CAIP-2 format if needed
-    this.legacyNetwork = options.network;
+    // Also resolve CAIP-2 input to legacy name for built-in config lookup
+    const legacyKey = CAIP2_TO_LEGACY[options.network] ?? options.network;
+    this.legacyNetwork = legacyKey;
     this.network = this.toCAIP2Network(options.network);
 
+    // Look up built-in config by legacy name
     const builtinConfig = BUILT_IN_NETWORKS[
-      options.network as LegacyNetwork
+      legacyKey as LegacyNetwork
     ] as (typeof BUILT_IN_NETWORKS)[LegacyNetwork] | undefined;
 
     const assetAddress =

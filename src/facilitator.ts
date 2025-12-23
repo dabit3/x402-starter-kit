@@ -70,6 +70,11 @@ const NETWORK_TO_CAIP2: Record<string, string> = {
   'solana-devnet': 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
 };
 
+// Reverse map: CAIP-2 to legacy network name
+const CAIP2_TO_LEGACY: Record<string, string> = Object.fromEntries(
+  Object.entries(NETWORK_TO_CAIP2).map(([legacy, caip2]) => [caip2, legacy])
+);
+
 function getEvmCaip2Network(network: string): Network {
   if (network.startsWith('eip155:')) return network as Network;
   return (NETWORK_TO_CAIP2[network] || `eip155:${network}`) as Network;
@@ -329,11 +334,14 @@ async function startFacilitator() {
   // =========================================================================
   if (hasEvmKey) {
     const evmRpcUrl = process.env.FACILITATOR_EVM_RPC_URL;
-    const viemChain = VIEM_CHAINS[EVM_NETWORK];
+    // Support both legacy names and CAIP-2 format for network config
+    const evmLegacyNetwork = CAIP2_TO_LEGACY[EVM_NETWORK] ?? EVM_NETWORK;
+    const viemChain = VIEM_CHAINS[evmLegacyNetwork];
     
     if (!viemChain && !evmRpcUrl) {
       console.error(`❌ Unknown EVM network "${EVM_NETWORK}" and no FACILITATOR_EVM_RPC_URL provided`);
       console.error('   Supported networks: base, base-sepolia, polygon, polygon-amoy, avalanche, avalanche-fuji, iotex, sei, sei-testnet');
+      console.error('   Or use CAIP-2 format: eip155:8453, eip155:84532, etc.');
       process.exit(1);
     }
 
