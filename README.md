@@ -147,7 +147,7 @@ FACILITATOR_URL=https://your-mainnet-facilitator.example.com npm run start
 **Some Available Facilitators (No API key required):**
 
 - [PayAI](https://facilitator.payai.network)
-- [x402rs](https://x402.org/facilitator)
+- [x402rs](https://facilitator.x402.rs)
 - [Heurist](https://facilitator.heurist.xyz)
 - [Corbits](https://facilitator.corbits.dev)
 
