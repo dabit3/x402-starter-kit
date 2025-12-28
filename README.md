@@ -142,6 +142,15 @@ If you have access to a hosted facilitator that supports mainnet:
 FACILITATOR_URL=https://your-mainnet-facilitator.example.com npm run start
 ```
 
+**Note:** Some facilitators do not require API keys to get started. For example, PayAI, x402rs, Heurist, Corbits, and other public facilitators can be used without additional authentication.
+
+**Some Available Facilitators (No API key required):**
+
+- [PayAI](https://facilitator.payai.network)
+- [x402rs](https://facilitator.x402.rs)
+- [Heurist](https://facilitator.heurist.xyz)
+- [Corbits](https://facilitator.corbits.dev)
+
 #### Option 3: Direct Settlement (EVM Only)
 
 Skip the facilitator entirely and settle directly on-chain (requires merchant private key):
