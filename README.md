@@ -159,6 +159,9 @@ npm run test
 
 # Test Solana payments
 npm run test:solana
+
+# Run unit tests for payment policy middleware
+npm run test:policy
 ```
 
 ## Available Scripts
@@ -171,6 +174,7 @@ npm run test:solana
 | `npm run build` | Build TypeScript |
 | `npm run test` | Run EVM test client |
 | `npm run test:solana` | Run Solana test client |
+| `npm run test:policy` | Run unit tests for payment policy middleware |
 | `npm run setup:solana` | Setup Solana wallets (create ATAs) |
 | `npm run clean` | Remove build artifacts |
 
@@ -186,6 +190,19 @@ npm run test:solana
 | `SETTLEMENT_MODE` | No | `facilitator` (default) or `direct` |
 | `FACILITATOR_URL` | No | Custom facilitator URL |
 | `PRIVATE_KEY` | For direct mode | Merchant key for direct settlement |
+
+### Payment Policy Middleware
+
+All variables below are optional. If you set ANY of them, the server will enable a policy layer that runs after payment verification and before settlement.
+
+| Variable | Description |
+|----------|-------------|
+| `POLICY_MAX_PER_TRANSACTION` | Max USDC allowed per transaction (e.g. `1.00`) |
+| `POLICY_MAX_PER_HOUR` | Max USDC per payer per hour |
+| `POLICY_MAX_PER_DAY` | Max USDC per payer per day |
+| `POLICY_ALLOWED_PAYERS` | Comma-separated allowlist of payer addresses |
+| `POLICY_BLOCKED_PAYERS` | Comma-separated blocklist of payer addresses |
+
 
 ### AI Provider
 
