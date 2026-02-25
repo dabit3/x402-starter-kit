@@ -391,8 +391,49 @@ app.post('/process', async (req, res) => {
 
     // Evaluate payment against policy middleware (if configured)
     if (policyMiddleware) {
+      const policyNeedsPayer =
+        policyConfig.allowedPayers !== undefined ||
+        policyConfig.blockedPayers !== undefined ||
+        policyConfig.maxPerHour !== undefined ||
+        policyConfig.maxPerDay !== undefined;
+
+      if (policyNeedsPayer && !verifyResult.payer) {
+        const reason = 'Payer identity required for policy evaluation but not available';
+        console.log(`\u{1F6E1}\uFE0F  Payment blocked by policy: ${reason}`);
+
+        task.status.state = TaskState.FAILED;
+        task.status.message = {
+          messageId: `msg-${Date.now()}`,
+          role: 'agent',
+          parts: [
+            {
+              kind: 'text',
+              text: `Payment blocked by policy: ${reason}`,
+            },
+          ],
+          metadata: {
+            'x402.payment.status': 'payment-rejected',
+            'x402.policy.reason': reason,
+          },
+        };
+        task.metadata = {
+          ...(task.metadata || {}),
+          'x402.payment.status': 'payment-rejected',
+          'x402.policy.reason': reason,
+        };
+
+        events.push(task);
+
+        return res.status(403).json({
+          error: 'Payment blocked by policy',
+          reason,
+          task,
+          events,
+        });
+      }
+
       const policyContext = {
-        payer: verifyResult.payer || 'unknown',
+        payer: verifyResult.payer ?? 'unknown',
         amount: merchantExecutor.getPaymentRequirements().amount,
         network: merchantExecutor.getPaymentRequirements().network,
         asset: merchantExecutor.getPaymentRequirements().asset,
@@ -460,9 +501,17 @@ app.post('/process', async (req, res) => {
     };
 
     // Record the transaction in policy middleware for rate-limit tracking
-    if (policyMiddleware && settlement.success) {
+    const shouldRecordForRateLimits =
+      policyConfig.maxPerHour !== undefined || policyConfig.maxPerDay !== undefined;
+
+    if (
+      policyMiddleware &&
+      settlement.success &&
+      shouldRecordForRateLimits &&
+      verifyResult.payer
+    ) {
       policyMiddleware.recordTransaction({
-        payer: verifyResult.payer || 'unknown',
+        payer: verifyResult.payer,
         amount: merchantExecutor.getPaymentRequirements().amount,
         network: merchantExecutor.getPaymentRequirements().network,
         asset: merchantExecutor.getPaymentRequirements().asset,
