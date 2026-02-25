@@ -16,6 +16,11 @@ import {
   Task,
   TaskState,
 } from './x402Types.js';
+import {
+  createPolicyMiddleware,
+  type PaymentPolicyMiddleware,
+  type PolicyConfig,
+} from './middleware/index.js';
 
 // Load environment variables
 dotenv.config();
@@ -56,6 +61,13 @@ const AI_MAX_TOKENS = process.env.AI_MAX_TOKENS
 const AI_SEED = process.env.AI_SEED
   ? Number.parseInt(process.env.AI_SEED, 10)
   : undefined;
+
+// Payment policy configuration (all optional)
+const POLICY_MAX_PER_TX = process.env.POLICY_MAX_PER_TRANSACTION;
+const POLICY_MAX_PER_HOUR = process.env.POLICY_MAX_PER_HOUR;
+const POLICY_MAX_PER_DAY = process.env.POLICY_MAX_PER_DAY;
+const POLICY_ALLOWED_PAYERS = process.env.POLICY_ALLOWED_PAYERS;
+const POLICY_BLOCKED_PAYERS = process.env.POLICY_BLOCKED_PAYERS;
 
 // Supported networks - both legacy names and CAIP-2 format
 const SUPPORTED_NETWORKS: string[] = [
@@ -174,6 +186,31 @@ const merchantOptions: MerchantExecutorOptions = {
 };
 
 const merchantExecutor = new MerchantExecutor(merchantOptions);
+
+// Initialize optional payment policy middleware
+const policyConfig: PolicyConfig = {
+  ...(POLICY_MAX_PER_TX && { maxPerTransaction: POLICY_MAX_PER_TX }),
+  ...(POLICY_MAX_PER_HOUR && { maxPerHour: POLICY_MAX_PER_HOUR }),
+  ...(POLICY_MAX_PER_DAY && { maxPerDay: POLICY_MAX_PER_DAY }),
+  ...(POLICY_ALLOWED_PAYERS && {
+    allowedPayers: POLICY_ALLOWED_PAYERS.split(',').map((a) => a.trim()),
+  }),
+  ...(POLICY_BLOCKED_PAYERS && {
+    blockedPayers: POLICY_BLOCKED_PAYERS.split(',').map((a) => a.trim()),
+  }),
+};
+
+const hasPolicyConfig = Object.keys(policyConfig).length > 0;
+let policyMiddleware: PaymentPolicyMiddleware | undefined;
+if (hasPolicyConfig) {
+  policyMiddleware = createPolicyMiddleware(policyConfig);
+  console.log('🛡️  Payment policy middleware enabled');
+  if (policyConfig.maxPerTransaction) console.log(`   Max per transaction: $${policyConfig.maxPerTransaction} USDC`);
+  if (policyConfig.maxPerHour) console.log(`   Max per hour: $${policyConfig.maxPerHour} USDC`);
+  if (policyConfig.maxPerDay) console.log(`   Max per day: $${policyConfig.maxPerDay} USDC`);
+  if (policyConfig.allowedPayers) console.log(`   Allowed payers: ${policyConfig.allowedPayers.length} address(es)`);
+  if (policyConfig.blockedPayers) console.log(`   Blocked payers: ${policyConfig.blockedPayers.length} address(es)`);
+}
 
 // Initialize the merchant executor (async for facilitator mode)
 async function initializeMerchant() {
@@ -352,6 +389,53 @@ app.post('/process', async (req, res) => {
       ...(verifyResult.payer ? { 'x402.payment.payer': verifyResult.payer } : {}),
     };
 
+    // Evaluate payment against policy middleware (if configured)
+    if (policyMiddleware) {
+      const policyContext = {
+        payer: verifyResult.payer || 'unknown',
+        amount: merchantExecutor.getPaymentRequirements().amount,
+        network: merchantExecutor.getPaymentRequirements().network,
+        asset: merchantExecutor.getPaymentRequirements().asset,
+        payTo: merchantExecutor.getPaymentRequirements().payTo,
+        timestamp: Date.now(),
+      };
+
+      const policyResult = await policyMiddleware.evaluate(policyContext);
+
+      if (!policyResult.allowed) {
+        console.log(`🛡️  Payment blocked by policy: ${policyResult.reason}`);
+        task.status.state = TaskState.FAILED;
+        task.status.message = {
+          messageId: `msg-${Date.now()}`,
+          role: 'agent',
+          parts: [
+            {
+              kind: 'text',
+              text: `Payment blocked by policy: ${policyResult.reason}`,
+            },
+          ],
+          metadata: {
+            'x402.payment.status': 'payment-rejected',
+            'x402.policy.reason': policyResult.reason,
+          },
+        };
+        task.metadata = {
+          ...(task.metadata || {}),
+          'x402.payment.status': 'payment-rejected',
+          'x402.policy.reason': policyResult.reason,
+        };
+
+        events.push(task);
+
+        return res.status(403).json({
+          error: 'Payment blocked by policy',
+          reason: policyResult.reason,
+          task,
+          events,
+        });
+      }
+    }
+
     // Execute the AI agent's core logic to process the user's request.
     // This calls the LLM (e.g., OpenAI) with the conversation context and streams
     // the response back through the event queue, updating the task with the AI's reply.
@@ -374,6 +458,18 @@ app.post('/process', async (req, res) => {
         ? { 'x402.payment.error': settlement.errorReason }
         : {}),
     };
+
+    // Record the transaction in policy middleware for rate-limit tracking
+    if (policyMiddleware && settlement.success) {
+      policyMiddleware.recordTransaction({
+        payer: verifyResult.payer || 'unknown',
+        amount: merchantExecutor.getPaymentRequirements().amount,
+        network: merchantExecutor.getPaymentRequirements().network,
+        asset: merchantExecutor.getPaymentRequirements().asset,
+        payTo: merchantExecutor.getPaymentRequirements().payTo,
+        timestamp: Date.now(),
+      });
+    }
 
     if (events.length === 0) {
       events.push(task);
