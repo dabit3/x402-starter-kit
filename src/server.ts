@@ -65,6 +65,10 @@ const POLICY_ALLOWED_RECIPIENTS = process.env.POLICY_ALLOWED_RECIPIENTS;
 const POLICY_RATE_LIMIT = process.env.POLICY_RATE_LIMIT_PER_MINUTE
   ? Number.parseInt(process.env.POLICY_RATE_LIMIT_PER_MINUTE, 10)
   : undefined;
+if (POLICY_RATE_LIMIT !== undefined && Number.isNaN(POLICY_RATE_LIMIT)) {
+  console.error('\u274c POLICY_RATE_LIMIT_PER_MINUTE must be a valid integer');
+  process.exit(1);
+}
 
 // Supported networks - both legacy names and CAIP-2 format
 const SUPPORTED_NETWORKS: string[] = [
@@ -202,7 +206,7 @@ if (hasPolicyConfig) {
   if (POLICY_MAX_PER_TX) console.log(`   Max per transaction: $${POLICY_MAX_PER_TX} USDC`);
   if (POLICY_DAILY_BUDGET) console.log(`   Daily budget: $${POLICY_DAILY_BUDGET} USDC`);
   if (POLICY_ALLOWED_RECIPIENTS) console.log(`   Allowed recipients: ${POLICY_ALLOWED_RECIPIENTS}`);
-  if (POLICY_RATE_LIMIT) console.log(`   Rate limit: ${POLICY_RATE_LIMIT}/min`);
+  if (POLICY_RATE_LIMIT !== undefined) console.log(`   Rate limit: ${POLICY_RATE_LIMIT}/min`);
 }
 
 // Initialize the merchant executor (async for facilitator mode)
