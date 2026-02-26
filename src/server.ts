@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 
 import { ExampleService } from './ExampleService.js';
 import { MerchantExecutor, type MerchantExecutorOptions } from './MerchantExecutor.js';
+import { createPolicyMiddleware, type PolicyMiddleware } from './policyMiddleware.js';
 import type { PaymentPayload } from '@x402/core/types';
 import {
   EventQueue,
@@ -55,6 +56,14 @@ const AI_MAX_TOKENS = process.env.AI_MAX_TOKENS
   : undefined;
 const AI_SEED = process.env.AI_SEED
   ? Number.parseInt(process.env.AI_SEED, 10)
+  : undefined;
+
+// Payment policy configuration (optional)
+const POLICY_MAX_PER_TX = process.env.POLICY_MAX_PER_TRANSACTION;
+const POLICY_DAILY_BUDGET = process.env.POLICY_DAILY_BUDGET;
+const POLICY_ALLOWED_RECIPIENTS = process.env.POLICY_ALLOWED_RECIPIENTS;
+const POLICY_RATE_LIMIT = process.env.POLICY_RATE_LIMIT_PER_MINUTE
+  ? Number.parseInt(process.env.POLICY_RATE_LIMIT_PER_MINUTE, 10)
   : undefined;
 
 // Supported networks - both legacy names and CAIP-2 format
@@ -174,6 +183,27 @@ const merchantOptions: MerchantExecutorOptions = {
 };
 
 const merchantExecutor = new MerchantExecutor(merchantOptions);
+
+// Initialize payment policy middleware (optional)
+const hasPolicyConfig =
+  POLICY_MAX_PER_TX || POLICY_DAILY_BUDGET || POLICY_ALLOWED_RECIPIENTS || POLICY_RATE_LIMIT;
+
+let policyMiddleware: PolicyMiddleware | undefined;
+if (hasPolicyConfig) {
+  policyMiddleware = createPolicyMiddleware({
+    maxPerTransaction: POLICY_MAX_PER_TX,
+    dailyBudget: POLICY_DAILY_BUDGET,
+    allowedRecipients: POLICY_ALLOWED_RECIPIENTS
+      ? POLICY_ALLOWED_RECIPIENTS.split(',').map((a) => a.trim())
+      : undefined,
+    rateLimitPerMinute: POLICY_RATE_LIMIT,
+  });
+  console.log('\n🛡️  Payment policy middleware enabled:');
+  if (POLICY_MAX_PER_TX) console.log(`   Max per transaction: $${POLICY_MAX_PER_TX} USDC`);
+  if (POLICY_DAILY_BUDGET) console.log(`   Daily budget: $${POLICY_DAILY_BUDGET} USDC`);
+  if (POLICY_ALLOWED_RECIPIENTS) console.log(`   Allowed recipients: ${POLICY_ALLOWED_RECIPIENTS}`);
+  if (POLICY_RATE_LIMIT) console.log(`   Rate limit: ${POLICY_RATE_LIMIT}/min`);
+}
 
 // Initialize the merchant executor (async for facilitator mode)
 async function initializeMerchant() {
@@ -352,6 +382,53 @@ app.post('/process', async (req, res) => {
       ...(verifyResult.payer ? { 'x402.payment.payer': verifyResult.payer } : {}),
     };
 
+    // Run payment policy check (if configured) between verification and settlement.
+    // This is the "should pay" layer that complements the "can pay" verification above.
+    if (policyMiddleware) {
+      const policyRequest = {
+        amount: merchantExecutor.getPaymentRequirements().amount,
+        recipient: merchantExecutor.getPaymentRequirements().payTo,
+        payer: verifyResult.payer,
+        network: merchantExecutor.getPaymentRequirements().network,
+        asset: merchantExecutor.getPaymentRequirements().asset,
+      };
+
+      const policyResult = await policyMiddleware.evaluate(policyRequest);
+
+      if (!policyResult.allowed) {
+        console.log(`\n\u26d4 Payment denied by policy: ${policyResult.reason}`);
+        task.status.state = TaskState.FAILED;
+        task.status.message = {
+          messageId: `msg-${Date.now()}`,
+          role: 'agent',
+          parts: [
+            {
+              kind: 'text',
+              text: `Payment denied by policy: ${policyResult.reason}`,
+            },
+          ],
+          metadata: {
+            'x402.payment.status': 'payment-policy-denied',
+            'x402.payment.policy.reason': policyResult.reason,
+          },
+        };
+        task.metadata = {
+          ...(task.metadata || {}),
+          'x402.payment.status': 'payment-policy-denied',
+          'x402.payment.policy.reason': policyResult.reason,
+        };
+
+        events.push(task);
+
+        return res.status(403).json({
+          error: 'Payment denied by policy',
+          reason: policyResult.reason,
+          task,
+          events,
+        });
+      }
+    }
+
     // Execute the AI agent's core logic to process the user's request.
     // This calls the LLM (e.g., OpenAI) with the conversation context and streams
     // the response back through the event queue, updating the task with the AI's reply.
@@ -361,6 +438,17 @@ app.post('/process', async (req, res) => {
     // This submits the signed authorization to the blockchain, transferring USDC from the payer
     // to the merchant's wallet. Returns settlement result with transaction hash and status.
     const settlement = await merchantExecutor.settlePayment(paymentPayload);
+
+    // Record the settled transaction in the policy store (for daily budget / rate tracking)
+    if (policyMiddleware && settlement.success) {
+      await policyMiddleware.recordTransaction({
+        amount: merchantExecutor.getPaymentRequirements().amount,
+        recipient: merchantExecutor.getPaymentRequirements().payTo,
+        payer: verifyResult.payer,
+        network: merchantExecutor.getPaymentRequirements().network,
+        asset: merchantExecutor.getPaymentRequirements().asset,
+      });
+    }
 
     // Update the task metadata with the payment status and settlement result.
     // This includes the transaction hash (if successful) and any error reason (if failed).

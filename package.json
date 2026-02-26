@@ -15,6 +15,7 @@
     "dev:facilitator": "tsc && node dist/facilitator.js",
     "test": "npm run build && node dist/testClient.js",
     "test:solana": "npm run build && node dist/testClientSolana.js",
+    "test:policy": "npm run build && node --test dist/policyMiddleware.test.js",
     "test:shell": "bash test-request.sh",
     "setup:solana": "npm run build && node dist/setupSolanaWallets.js",
     "clean": "rm -rf dist"
