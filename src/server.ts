@@ -441,13 +441,17 @@ app.post('/process', async (req, res) => {
 
     // Record the settled transaction in the policy store (for daily budget / rate tracking)
     if (policyMiddleware && settlement.success) {
-      await policyMiddleware.recordTransaction({
-        amount: merchantExecutor.getPaymentRequirements().amount,
-        recipient: merchantExecutor.getPaymentRequirements().payTo,
-        payer: verifyResult.payer,
-        network: merchantExecutor.getPaymentRequirements().network,
-        asset: merchantExecutor.getPaymentRequirements().asset,
-      });
+      try {
+        await policyMiddleware.recordTransaction({
+          amount: merchantExecutor.getPaymentRequirements().amount,
+          recipient: merchantExecutor.getPaymentRequirements().payTo,
+          payer: verifyResult.payer,
+          network: merchantExecutor.getPaymentRequirements().network,
+          asset: merchantExecutor.getPaymentRequirements().asset,
+        });
+      } catch (policyError) {
+        console.error('⚠️  Failed to record transaction in policy store (settlement already succeeded):', policyError);
+      }
     }
 
     // Update the task metadata with the payment status and settlement result.
