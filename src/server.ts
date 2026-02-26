@@ -186,7 +186,7 @@ const merchantExecutor = new MerchantExecutor(merchantOptions);
 
 // Initialize payment policy middleware (optional)
 const hasPolicyConfig =
-  POLICY_MAX_PER_TX || POLICY_DAILY_BUDGET || POLICY_ALLOWED_RECIPIENTS || POLICY_RATE_LIMIT;
+  POLICY_MAX_PER_TX !== undefined || POLICY_DAILY_BUDGET !== undefined || POLICY_ALLOWED_RECIPIENTS !== undefined || POLICY_RATE_LIMIT !== undefined;
 
 let policyMiddleware: PolicyMiddleware | undefined;
 if (hasPolicyConfig) {
