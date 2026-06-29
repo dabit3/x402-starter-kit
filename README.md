@@ -43,7 +43,7 @@ npm install
 Copy the example environment file:
 
 ```bash
-cp env.example .env
+cp .env.example .env
 ```
 
 Edit `.env` and fill in your values:
@@ -329,7 +329,7 @@ x402-starter/
 │   ├── testClientSolana.ts    # Solana test client
 │   ├── setupSolanaWallets.ts   # Solana wallet setup tool
 │   └── x402Types.ts           # Shared types
-├── env.example                # Example environment configuration
+├── .env.example               # Example environment configuration
 ├── package.json
 ├── tsconfig.json
 └── README.md
