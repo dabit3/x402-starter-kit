@@ -14,6 +14,7 @@
     "dev": "tsc && node dist/server.js",
     "dev:facilitator": "tsc && node dist/facilitator.js",
     "test": "npm run build && node dist/testClient.js",
+    "test:unit": "tsc && node --test dist/payment-bounds.test.js dist/merchant-bounds-path.test.js",
     "test:solana": "npm run build && node dist/testClientSolana.js",
     "test:shell": "bash test-request.sh",
     "setup:solana": "npm run build && node dist/setupSolanaWallets.js",
