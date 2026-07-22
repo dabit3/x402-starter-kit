@@ -7,6 +7,11 @@ import type {
   PaymentRequirements,
   Network,
 } from '@x402/core/types';
+import {
+  evaluatePaymentBounds,
+  fieldsFromPaymentPayload,
+  type PaymentBoundsConfig,
+} from './payment-bounds.js';
 
 // NOTE: The default x402 facilitator only supports TESTNETS
 // For mainnet support, you need to run your own facilitator or use direct settlement (EVM only)
@@ -326,6 +331,15 @@ export interface MerchantExecutorOptions {
   assetName?: string;
   explorerUrl?: string;
   chainId?: number;
+  /**
+   * Optional payment bounds checked before verify/settle (facilitator or direct).
+   * When null/undefined, prior unbounded behavior is preserved.
+   */
+  paymentBounds?: PaymentBoundsConfig | null;
+  /** Convenience: max amount in atomic units (sets paymentBounds.maxPaymentAmount). */
+  maxPaymentAmount?: string | bigint;
+  /** Convenience: network allowlist (sets paymentBounds.networkAllowlist). */
+  networkAllowlist?: string[];
 }
 
 export interface VerifyResult {
@@ -355,6 +369,7 @@ export class MerchantExecutor {
   private readonly assetName: string;
   private readonly chainId?: number;
   private resourceServer?: x402ResourceServer;
+  private readonly paymentBounds: PaymentBoundsConfig | null;
 
   constructor(options: MerchantExecutorOptions) {
     // Convert legacy network name to CAIP-2 format if needed
@@ -389,6 +404,9 @@ export class MerchantExecutor {
     this.assetName = assetName;
     this.chainId = chainId;
     this.explorerUrl = explorerUrl;
+
+    // Optional bounds (env/options). Unset → no pre-verify/settle checks.
+    this.paymentBounds = this.resolvePaymentBounds(options);
 
     // Build x402 v2 payment requirements
     this.requirements = {
@@ -591,6 +609,16 @@ export class MerchantExecutor {
     console.log(`   To: ${this.requirements.payTo}`);
     console.log(`   Amount: ${this.requirements.amount}`);
 
+    // Bounds before facilitator/local verify — hot path, not a demo.
+    const boundFailure = this.checkPaymentBounds(payload);
+    if (boundFailure) {
+      console.log(`\n❌ Payment bounds rejected: ${boundFailure.reason}`);
+      return {
+        isValid: false,
+        invalidReason: boundFailure.reason,
+      };
+    }
+
     try {
       const result =
         this.mode === 'direct'
@@ -624,6 +652,17 @@ export class MerchantExecutor {
     console.log(`   Network: ${this.network}`);
     console.log(`   Amount: ${this.requirements.amount} (micro units)`);
     console.log(`   Pay to: ${this.requirements.payTo}`);
+
+    // Bounds before facilitator/local settle — same gate as verify.
+    const boundFailure = this.checkPaymentBounds(payload);
+    if (boundFailure) {
+      console.log(`\n❌ Payment bounds rejected: ${boundFailure.reason}`);
+      return {
+        success: false,
+        network: this.network,
+        errorReason: boundFailure.reason,
+      };
+    }
 
     try {
       const result =
@@ -855,6 +894,67 @@ export class MerchantExecutor {
   private getAtomicAmount(priceUsd: number): string {
     const atomicUnits = Math.floor(priceUsd * 1_000_000);
     return atomicUnits.toString();
+  }
+
+  private resolvePaymentBounds(
+    options: MerchantExecutorOptions
+  ): PaymentBoundsConfig | null {
+    if (options.paymentBounds === null) {
+      return null;
+    }
+    if (options.paymentBounds) {
+      return {
+        ...options.paymentBounds,
+        expectedPayTo:
+          options.paymentBounds.expectedPayTo ?? options.payToAddress,
+      };
+    }
+
+    const hasMax = options.maxPaymentAmount !== undefined;
+    const hasNet = (options.networkAllowlist?.length ?? 0) > 0;
+    if (!hasMax && !hasNet) {
+      return null;
+    }
+
+    let maxPaymentAmount: bigint | undefined;
+    if (options.maxPaymentAmount !== undefined) {
+      maxPaymentAmount =
+        typeof options.maxPaymentAmount === 'bigint'
+          ? options.maxPaymentAmount
+          : BigInt(String(options.maxPaymentAmount).trim());
+    }
+
+    return {
+      maxPaymentAmount,
+      networkAllowlist: hasNet ? options.networkAllowlist : undefined,
+      expectedPayTo: options.payToAddress,
+      enforcePayToMatch: true,
+    };
+  }
+
+  /**
+   * Run optional payment bounds before verify/settle (facilitator or direct).
+   * Returns a failure reason or null when allowed / bounds unset.
+   */
+  private checkPaymentBounds(
+    payload: PaymentPayload
+  ): { reason: string } | null {
+    if (!this.paymentBounds) {
+      return null;
+    }
+    const result = evaluatePaymentBounds(
+      this.paymentBounds,
+      {
+        amount: this.requirements.amount,
+        payTo: this.requirements.payTo,
+        network: String(this.requirements.network),
+      },
+      fieldsFromPaymentPayload(payload)
+    );
+    if (!result.ok) {
+      return { reason: result.reason };
+    }
+    return null;
   }
 
   private buildHeaders() {

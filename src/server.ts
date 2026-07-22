@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 
 import { ExampleService } from './ExampleService.js';
 import { MerchantExecutor, type MerchantExecutorOptions } from './MerchantExecutor.js';
+import { parsePaymentBoundsFromEnv } from './payment-bounds.js';
 import type { PaymentPayload } from '@x402/core/types';
 import {
   EventQueue,
@@ -156,6 +157,12 @@ const exampleService = new ExampleService({
   seed: AI_PROVIDER === 'eigenai' ? AI_SEED : undefined,
 });
 
+// Optional payment bounds (MAX_PAYMENT_AMOUNT / NETWORK_ALLOWLIST / ENFORCE_PAYTO_MATCH).
+// Unset → prior unbounded verify/settle behavior.
+const paymentBounds = parsePaymentBoundsFromEnv(process.env, {
+  expectedPayTo: PAY_TO_ADDRESS,
+});
+
 // Initialize the example service (replace with your own service)
 const merchantOptions: MerchantExecutorOptions = {
   payToAddress: PAY_TO_ADDRESS,
@@ -171,6 +178,7 @@ const merchantOptions: MerchantExecutorOptions = {
   assetName: ASSET_NAME,
   explorerUrl: EXPLORER_URL,
   chainId: CHAIN_ID,
+  paymentBounds,
 };
 
 const merchantExecutor = new MerchantExecutor(merchantOptions);
@@ -198,6 +206,21 @@ if (settlementMode === 'direct') {
 
 console.log('🚀 x402 v2 Payment API initialized');
 console.log(`💰 Payment address: ${PAY_TO_ADDRESS}`);
+if (paymentBounds) {
+  const parts: string[] = [];
+  if (paymentBounds.maxPaymentAmount !== undefined) {
+    parts.push(`maxAmount=${paymentBounds.maxPaymentAmount.toString()}`);
+  }
+  if (paymentBounds.networkAllowlist?.length) {
+    parts.push(`networks=${paymentBounds.networkAllowlist.length}`);
+  }
+  if (paymentBounds.enforcePayToMatch) {
+    parts.push('payToMatch=on');
+  }
+  console.log(`🛡️  Payment bounds: enabled (${parts.join(', ')})`);
+} else {
+  console.log('🛡️  Payment bounds: off (set MAX_PAYMENT_AMOUNT / NETWORK_ALLOWLIST to enable)');
+}
 console.log(`🌐 Network: ${NETWORK}`);
 console.log(`💵 Price per request: $0.10 USDC`);
 
