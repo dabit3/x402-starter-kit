@@ -146,10 +146,20 @@ FACILITATOR_URL=https://your-mainnet-facilitator.example.com npm run start
 
 **Some Available Facilitators (No API key required):**
 
+- [ArisPay](https://facilitator.arispay.app) - Base mainnet, USDC and EURC, no signup
 - [PayAI](https://facilitator.payai.network)
 - [x402rs](https://facilitator.x402.rs)
 - [Heurist](https://facilitator.heurist.xyz)
 - [Corbits](https://facilitator.corbits.dev)
+
+For a no-signup Base mainnet server using ArisPay:
+
+```bash
+NETWORK=base FACILITATOR_URL=https://facilitator.arispay.app npm run start
+```
+
+This selects ArisPay explicitly; it does not change the starter's testnet
+default or require an ArisPay account or API key.
 
 #### Option 3: Direct Settlement (EVM Only)
 
